@@ -1,105 +1,119 @@
-#[macro_export]
-macro_rules! as_ref_impl {
-    ($t:ty) => {
-        impl AsRef<$t> for $t {
-            fn as_ref(&self) -> &$t {
-                self
-            }
-        }
-    };
-}
-#[macro_export]
-macro_rules! struct_def {
-    ($s:ident $([$($d:ident), *])? { $($f: ident: $t:ty: $r:ty), * }) => {
-        $(#[derive($($d, )*)])?
-        pub struct $s {
-            $(
-                $f: $t,
-            )*
-        }
+extern crate proc_macro;
+extern crate syn;
+#[macro_use]
+extern crate quote;
 
-        impl $s {
-            pub fn new( $($f: $t, )*) -> Self {
-                Self {
-                    $($f, )*
-                }
-            }
+use proc_macro::TokenStream;
+use syn::{parse_macro_input, DeriveInput, Data, Fields, Ident};
 
-            $(
-                pub fn $f(&self) -> $r {
-                    &self.$f
-                }
-            )*
+// Custom attributes, for illustrative purposes
+const USE_DEREF: &str = "use_deref";
+const USE_AS_REF: &str = "use_as_ref";
+const GET_MUT: &str = "get_mut";
 
-            pub fn inner_tuple(&self) -> ($($r, )*) {
-                ($(&self.$f, )*)
-            }   
-        }
-    };
-}
+#[proc_macro_derive(Getters, attributes(use_deref, use_as_ref, get_mut))]
+pub fn derive_getters_fn(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as DeriveInput);
+    let name = &input.ident;
 
-#[macro_export]
-macro_rules! enum_def {
-    ($e:ident $([$($d:ident), *])? { $($v:ident), * }) => {
-        $(#[derive($($d, )*)])?
-        pub enum $e {
-            $(
-                $v,
-            )*
-        }
-        paste::paste! {
-            impl $e {
-                $(
-                    pub fn [<is_ $v:snake:lower>](&self) -> bool {
-                        matches!(self, Self::$v)
+    let mut getters = Vec::new();
+    let mut mut_getters = Vec::new();
+
+    if let Data::Struct(data_struct) = &input.data {
+        if let Fields::Named(fields_named) = &data_struct.fields {
+            for f in fields_named.named.iter() {
+                let field_name = f.ident.as_ref().unwrap();
+                let field_ty = &f.ty;
+                
+                let mut use_deref = false;
+                let mut use_as_ref = false;
+                let mut generate_mut = false;
+
+                // Check attributes to set flags for getter generation
+                for attr in &f.attrs {
+                    if attr.path().is_ident(USE_DEREF) {
+                        use_deref = true;
+                    } else if attr.path().is_ident(USE_AS_REF) {
+                        use_as_ref = true;
+                    } else if attr.path().is_ident(GET_MUT) {
+                        generate_mut = true;
                     }
-                )*
-            }
-        }
-
-        impl Display for $e {
-            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                match self {
-                    $(
-                        $e::$v => write!(f, "{}", stringify!($v)),
-                    )*
                 }
-            }
-        }
-    };
-    ($e:ident $([$($d:ident), *])? { $($v:ident ($t:ty)), * }) => {
-        $(#[derive($($d, )*)])?
-        pub enum $e {
-            $(
-                $v($t),
-            )*
-        }
-        paste::paste! {
-            impl $e {
-                $(
-                    pub fn [<is_ $v:snake:lower>](&self) -> bool {
-                        matches!(self, Self::$v(_))
-                    }
 
-                    pub fn [<get_ $v:snake:lower >](&self) -> &$t {
-                        if let Self::$v(d) = self {
-                            d
-                        } else {
-                            unreachable!("Attemp to ues specific enum ({}) getter ({}), without checking type", stringify!([<$e>]), stringify!([<get_ $v:snake:lower >]))
+                // Generate the appropriate immutable getter based on the attributes
+                let getter = if use_deref {
+                    quote! {
+                        pub fn #field_name(&self) -> &<#field_ty as std::ops::Deref>::Target {
+                            &*self.#field_name
                         }
                     }
-                )*
-            }
-        }
+                } else if use_as_ref {
+                    quote! {
+                        pub fn #field_name(&self) -> &<#field_ty as std::convert::AsRef<#field_ty>>::Target {
+                            self.#field_name.as_ref()
+                        }
+                    }
+                } else {
+                    quote! {
+                        pub fn #field_name(&self) -> &#field_ty {
+                            &self.#field_name
+                        }
+                    }
+                };
 
-        impl Display for $e {
-            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                match self {
-                    $(
-                        $e::$v => write!(f, "{}", stringify!($v)),
-                    )*
+                getters.push(getter);
+
+                // Generate mutable getter if the get_mut attribute is present
+                if generate_mut {
+                    let getter_mut_name = Ident::new(&format!("{}_mut", field_name), field_name.span());
+                    let getter_mut = quote! {
+                        pub fn #getter_mut_name(&mut self) -> &mut #field_ty {
+                            &mut self.#field_name
+                        }
+                    };
+                    mut_getters.push(getter_mut);
                 }
             }
         }
+    }
+
+    // Generate the new function with fields and types.
+    let new_fn = generate_new_fn(&input.data);
+
+    // Combine the getters and mutable getters and the new function into the final impl block.
+    let expanded = quote! {
+        impl #name {
+            #new_fn
+
+            #(#getters)*
+            #(#mut_getters)*
+        }
     };
+
+    // Convert to a TokenStream and return.
+    TokenStream::from(expanded)
+}
+
+fn generate_new_fn(data: &Data) -> proc_macro2::TokenStream {
+    if let Data::Struct(data_struct) = data {
+        if let Fields::Named(fields_named) = &data_struct.fields {
+            let args = fields_named.named.iter().map(|f| {
+                let field_name = f.ident.as_ref().unwrap();
+                let field_ty = &f.ty;
+                quote! { #field_name: #field_ty }
+            });
+            let assignments = fields_named.named.iter().map(|f| {
+                let field_name = f.ident.as_ref().unwrap();
+                quote! { #field_name: #field_name }
+            });
+            return quote! {
+                pub fn new(#(#args),*) -> Self {
+                    Self {
+                        #(#assignments),*
+                    }
+                }
+            };
+        }
+    }
+    quote! {}
 }
