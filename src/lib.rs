@@ -80,9 +80,10 @@ pub fn derive_getters_fn(input: TokenStream) -> TokenStream {
             for (i, f) in fields_unnamed.unnamed.iter().enumerate() {
                 let field_ty = &f.ty;
                 let getter_name = Ident::new(&format!("get_{}", i), f.span());
+                let index = syn::Index::from(i); // Using syn::Index::from
                 let getter = quote! {
                     pub fn #getter_name(&self) -> &#field_ty {
-                        &self.#i
+                        &self.#index
                     }
                 };
                 getters.push(getter);
