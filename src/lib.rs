@@ -4,20 +4,33 @@ extern crate syn;
 extern crate quote;
 
 use proc_macro::TokenStream;
-use syn::{parse_macro_input, Data, DeriveInput, Fields, Ident, spanned::Spanned};
+use syn::{parse_macro_input, spanned::Spanned, Data, DeriveInput, Fields, Ident};
 
 // Custom attributes, for illustrative purposes
 const USE_DEREF: &str = "use_deref";
 const USE_AS_REF: &str = "use_as_ref";
 const GET_MUT: &str = "get_mut";
+const SKIP_NEW: &str = "skip_new";
+const GETTER_LOGIC: &str = "getter_logic";
 
-#[proc_macro_derive(Getters, attributes(use_deref, use_as_ref, get_mut))]
+#[proc_macro_derive(
+    Getters,
+    attributes(use_deref, use_as_ref, get_mut, skip_new, getter_logic)
+)]
 pub fn derive_getters_fn(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
     let name = &input.ident;
 
     let mut getters = Vec::new();
     let mut mut_getters = Vec::new();
+
+    let mut skip_new = false;
+    for attr in &input.attrs {
+        if attr.path().is_ident(SKIP_NEW) {
+            skip_new = true;
+            break;
+        }
+    }
 
     if let Data::Struct(data_struct) = &input.data {
         if let Fields::Named(fields_named) = &data_struct.fields {
@@ -28,6 +41,7 @@ pub fn derive_getters_fn(input: TokenStream) -> TokenStream {
                 let mut use_deref = false;
                 let mut use_as_ref = false;
                 let mut generate_mut = false;
+                let mut custom_logic = None;
 
                 // Check attributes to set flags for getter generation
                 for attr in &f.attrs {
@@ -37,11 +51,29 @@ pub fn derive_getters_fn(input: TokenStream) -> TokenStream {
                         use_as_ref = true;
                     } else if attr.path().is_ident(GET_MUT) {
                         generate_mut = true;
+                    } else if attr.path().is_ident(GETTER_LOGIC) {
+                        if let syn::Meta::NameValue(meta_name_value) = &attr.meta {
+                            if let syn::Expr::Lit(lit_str) = &meta_name_value.value {
+                                match &lit_str.lit {
+                                    syn::Lit::Str(lit) => {
+                                        custom_logic = Some(lit);
+                                    }
+                                    _ => todo!(),
+                                }
+                            }
+                        }
                     }
                 }
 
                 // Generate the appropriate immutable getter based on the attributes
-                let getter = if use_deref {
+                let getter = if let Some(logic_str) = custom_logic {
+                    let logic: proc_macro2::TokenStream = logic_str.parse().unwrap_or_else(|_| quote! {});
+                    quote! {
+                        pub fn #field_name(&self) -> u32 {
+                            #logic(self.#field_name)
+                        }
+                    }
+                } else if use_deref {
                     quote! {
                         pub fn #field_name(&self) -> &<#field_ty as std::ops::Deref>::Target {
                             &*self.#field_name
@@ -92,7 +124,11 @@ pub fn derive_getters_fn(input: TokenStream) -> TokenStream {
     }
 
     // Generate the new function with fields and types.
-    let new_fn = generate_new_fn(&input.data);
+    let new_fn = if !skip_new {
+        generate_new_fn(&input.data)
+    } else {
+        quote! {}
+    };
 
     // Combine the getters and mutable getters and the new function into the final impl block.
     let expanded = quote! {
@@ -145,9 +181,9 @@ fn generate_new_fn(data: &Data) -> proc_macro2::TokenStream {
                     }
                 }
             }
-            Fields::Unit => quote! {}
+            Fields::Unit => quote! {},
         },
         Data::Enum(_) => quote! {},
-        Data::Union(_) => quote! {}
+        Data::Union(_) => quote! {},
     }
 }
