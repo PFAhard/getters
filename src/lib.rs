@@ -6,21 +6,22 @@ extern crate quote;
 use proc_macro::TokenStream;
 use syn::{parse_macro_input, spanned::Spanned, Data, DeriveInput, Fields, Ident};
 
-// Custom attributes, for illustrative purposes
 const USE_DEREF: &str = "use_deref";
 const USE_AS_REF: &str = "use_as_ref";
 const GET_MUT: &str = "get_mut";
 const SKIP_NEW: &str = "skip_new";
 const GETTER_LOGIC: &str = "getter_logic";
+const SKIP_GETTER: &str = "skip_getter";
 
 #[proc_macro_derive(
     Getters,
-    attributes(use_deref, use_as_ref, get_mut, skip_new, getter_logic)
+    attributes(use_deref, use_as_ref, get_mut, skip_new, getter_logic, skip_getter)
 )]
 pub fn derive_getters_fn(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
     let name = &input.ident;
 
+    let generics = &input.generics;
     let mut getters = Vec::new();
     let mut mut_getters = Vec::new();
 
@@ -41,6 +42,8 @@ pub fn derive_getters_fn(input: TokenStream) -> TokenStream {
                 let mut use_deref = false;
                 let mut use_as_ref = false;
                 let mut generate_mut = false;
+                let mut skip_getter = false;
+
                 let mut custom_logic = None;
 
                 // Check attributes to set flags for getter generation
@@ -49,6 +52,8 @@ pub fn derive_getters_fn(input: TokenStream) -> TokenStream {
                         use_deref = true;
                     } else if attr.path().is_ident(USE_AS_REF) {
                         use_as_ref = true;
+                    } else if attr.path().is_ident(SKIP_GETTER) {
+                        skip_getter = true;
                     } else if attr.path().is_ident(GET_MUT) {
                         generate_mut = true;
                     } else if attr.path().is_ident(GETTER_LOGIC) {
@@ -65,46 +70,49 @@ pub fn derive_getters_fn(input: TokenStream) -> TokenStream {
                     }
                 }
 
-                // Generate the appropriate immutable getter based on the attributes
-                let getter = if let Some(logic_str) = custom_logic {
-                    let logic: proc_macro2::TokenStream = logic_str.parse().unwrap_or_else(|_| quote! {});
-                    quote! {
-                        pub fn #field_name(&self) -> u32 {
-                            #logic(self.#field_name)
+                if !skip_getter {
+                    // Generate the appropriate immutable getter based on the attributes
+                    let getter = if let Some(logic_str) = custom_logic {
+                        let logic: proc_macro2::TokenStream =
+                            logic_str.parse().unwrap_or_else(|_| quote! {});
+                        quote! {
+                            pub fn #field_name(&self) -> u32 {
+                                #logic(self.#field_name)
+                            }
                         }
-                    }
-                } else if use_deref {
-                    quote! {
-                        pub fn #field_name(&self) -> &<#field_ty as std::ops::Deref>::Target {
-                            &*self.#field_name
+                    } else if use_deref {
+                        quote! {
+                            pub fn #field_name(&self) -> &<#field_ty as std::ops::Deref>::Target {
+                                &*self.#field_name
+                            }
                         }
-                    }
-                } else if use_as_ref {
-                    quote! {
-                        pub fn #field_name(&self) -> &<#field_ty as std::convert::AsRef<#field_ty>>::Target {
-                            self.#field_name.as_ref()
+                    } else if use_as_ref {
+                        quote! {
+                            pub fn #field_name(&self) -> &<#field_ty as std::convert::AsRef<#field_ty>>::Target {
+                                self.#field_name.as_ref()
+                            }
                         }
-                    }
-                } else {
-                    quote! {
-                        pub fn #field_name(&self) -> &#field_ty {
-                            &self.#field_name
-                        }
-                    }
-                };
-
-                getters.push(getter);
-
-                // Generate mutable getter if the get_mut attribute is present
-                if generate_mut {
-                    let getter_mut_name =
-                        Ident::new(&format!("{}_mut", field_name), field_name.span());
-                    let getter_mut = quote! {
-                        pub fn #getter_mut_name(&mut self) -> &mut #field_ty {
-                            &mut self.#field_name
+                    } else {
+                        quote! {
+                            pub fn #field_name(&self) -> &#field_ty {
+                                &self.#field_name
+                            }
                         }
                     };
-                    mut_getters.push(getter_mut);
+
+                    getters.push(getter);
+
+                    // Generate mutable getter if the get_mut attribute is present
+                    if generate_mut {
+                        let getter_mut_name =
+                            Ident::new(&format!("{}_mut", field_name), field_name.span());
+                        let getter_mut = quote! {
+                            pub fn #getter_mut_name(&mut self) -> &mut #field_ty {
+                                &mut self.#field_name
+                            }
+                        };
+                        mut_getters.push(getter_mut);
+                    }
                 }
             }
         }
@@ -130,9 +138,11 @@ pub fn derive_getters_fn(input: TokenStream) -> TokenStream {
         quote! {}
     };
 
+    let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
+
     // Combine the getters and mutable getters and the new function into the final impl block.
     let expanded = quote! {
-        impl #name {
+        impl #impl_generics #name #ty_generics #where_clause {
             #new_fn
 
             #(#getters)*
