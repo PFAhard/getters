@@ -4,7 +4,7 @@ extern crate syn;
 extern crate quote;
 
 use proc_macro::TokenStream;
-use syn::{parse_macro_input, DeriveInput, Data, Fields, Ident};
+use syn::{parse_macro_input, Data, DeriveInput, Fields, Ident, spanned::Spanned};
 
 // Custom attributes, for illustrative purposes
 const USE_DEREF: &str = "use_deref";
@@ -24,7 +24,7 @@ pub fn derive_getters_fn(input: TokenStream) -> TokenStream {
             for f in fields_named.named.iter() {
                 let field_name = f.ident.as_ref().unwrap();
                 let field_ty = &f.ty;
-                
+
                 let mut use_deref = false;
                 let mut use_as_ref = false;
                 let mut generate_mut = false;
@@ -65,7 +65,8 @@ pub fn derive_getters_fn(input: TokenStream) -> TokenStream {
 
                 // Generate mutable getter if the get_mut attribute is present
                 if generate_mut {
-                    let getter_mut_name = Ident::new(&format!("{}_mut", field_name), field_name.span());
+                    let getter_mut_name =
+                        Ident::new(&format!("{}_mut", field_name), field_name.span());
                     let getter_mut = quote! {
                         pub fn #getter_mut_name(&mut self) -> &mut #field_ty {
                             &mut self.#field_name
@@ -73,6 +74,18 @@ pub fn derive_getters_fn(input: TokenStream) -> TokenStream {
                     };
                     mut_getters.push(getter_mut);
                 }
+            }
+        }
+        if let Fields::Unnamed(fields_unnamed) = &data_struct.fields {
+            for (i, f) in fields_unnamed.unnamed.iter().enumerate() {
+                let field_ty = &f.ty;
+                let getter_name = Ident::new(&format!("get_{}", i), f.span());
+                let getter = quote! {
+                    pub fn #getter_name(&self) -> &#field_ty {
+                        &self.#i
+                    }
+                };
+                getters.push(getter);
             }
         }
     }
@@ -95,25 +108,45 @@ pub fn derive_getters_fn(input: TokenStream) -> TokenStream {
 }
 
 fn generate_new_fn(data: &Data) -> proc_macro2::TokenStream {
-    if let Data::Struct(data_struct) = data {
-        if let Fields::Named(fields_named) = &data_struct.fields {
-            let args = fields_named.named.iter().map(|f| {
-                let field_name = f.ident.as_ref().unwrap();
-                let field_ty = &f.ty;
-                quote! { #field_name: #field_ty }
-            });
-            let assignments = fields_named.named.iter().map(|f| {
-                let field_name = f.ident.as_ref().unwrap();
-                quote! { #field_name: #field_name }
-            });
-            return quote! {
-                pub fn new(#(#args),*) -> Self {
-                    Self {
-                        #(#assignments),*
+    match data {
+        Data::Struct(data_struct) => match &data_struct.fields {
+            Fields::Named(fields_named) => {
+                let args = fields_named.named.iter().map(|f| {
+                    let field_name = f.ident.as_ref().unwrap();
+                    let field_ty = &f.ty;
+                    quote! { #field_name: #field_ty }
+                });
+                let assignments = fields_named.named.iter().map(|f| {
+                    let field_name = f.ident.as_ref().unwrap();
+                    quote! { #field_name: #field_name }
+                });
+                quote! {
+                    pub fn new(#(#args),*) -> Self {
+                        Self {
+                            #(#assignments),*
+                        }
                     }
                 }
-            };
-        }
+            }
+            Fields::Unnamed(fields_unnamed) => {
+                let args = fields_unnamed.unnamed.iter().enumerate().map(|(i, f)| {
+                    let field_ty = &f.ty;
+                    let ident = Ident::new(&format!("field_{}", i), f.span());
+                    quote! { #ident: #field_ty }
+                });
+                let assignments = fields_unnamed.unnamed.iter().enumerate().map(|(i, _)| {
+                    let ident = Ident::new(&format!("field_{}", i), proc_macro2::Span::call_site());
+                    quote! { #ident }
+                });
+                quote! {
+                    pub fn new(#(#args),*) -> Self {
+                        Self(#(#assignments),*)
+                    }
+                }
+            }
+            Fields::Unit => quote! {}
+        },
+        Data::Enum(_) => quote! {},
+        Data::Union(_) => quote! {}
     }
-    quote! {}
 }
