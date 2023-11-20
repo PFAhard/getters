@@ -216,34 +216,21 @@ fn parse_field_attributes(attrs: &[Attribute]) -> FieldAttributes {
     attrs
         .iter()
         .fold(FieldAttributes::default(), |mut acc, attr| {
-            match attr
-                .path()
-                .get_ident()
-                .map(|ident| ident.to_string())
-                .as_deref()
-            {
-                Some(USE_DEREF) => acc.use_deref = true,
-                Some(USE_AS_REF) => acc.use_as_ref = true,
-                Some(GET_MUT) => acc.generate_mut = true,
-                Some(SKIP_GETTER) => acc.skip_getter = true,
-                Some(GETTER_LOGIC) => {
-                    acc.custom_logic = {
-                        if let syn::Meta::NameValue(meta_name_value) = &attr.meta {
-                            if let syn::Expr::Lit(lit_str) = &meta_name_value.value {
-                                match &lit_str.lit {
-                                    syn::Lit::Str(lit) => Some(lit.clone()),
-                                    _ => todo!(),
-                                }
-                            } else {
-                                None
-                            }
-                        } else {
-                            None
+            match attr.meta {
+                syn::Meta::Path(ref path) if path.is_ident(USE_DEREF) => acc.use_deref = true,
+                syn::Meta::Path(ref path) if path.is_ident(USE_AS_REF) => acc.use_as_ref = true,
+                syn::Meta::Path(ref path) if path.is_ident(GET_MUT) => acc.generate_mut = true,
+                syn::Meta::Path(ref path) if path.is_ident(SKIP_GETTER) => acc.skip_getter = true,
+                syn::Meta::NameValue(ref nv) if nv.path.is_ident(GETTER_LOGIC) => {
+                    if let syn::Expr::Lit(ref value) = nv.value {
+                        match &value.lit {
+                            syn::Lit::Str(lit) => acc.custom_logic = Some(lit.clone()),
+                            _ => todo!(),
                         }
                     }
                 }
                 _ => (),
-            };
+            }
             acc
         })
 }
