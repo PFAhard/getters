@@ -1,5 +1,5 @@
 [package]
-name = "getters"
+name = "getters0"
 version = "0.1.0"
 description = "Rust Getters Derive Macro: Effortlessly auto-generate customizable getter methods for Rust structs"
 edition = "2021"
