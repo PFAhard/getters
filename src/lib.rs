@@ -15,7 +15,6 @@ const SKIP_NEW: &str = "skip_new";
 const GETTER_LOGIC: &str = "getter_logic";
 const SKIP_GETTER: &str = "skip_getter";
 
-
 /// A procedural macro to automatically derive getter methods for struct fields.
 ///
 /// Attributes:
@@ -23,7 +22,7 @@ const SKIP_GETTER: &str = "skip_getter";
 /// - `use_as_ref`: Generate a getter method using `AsRef` trait.
 /// - `get_mut`: Generate a mutable getter method for the field.
 /// - `skip_new`: Skip generating a `new` method for the struct.
-/// - `getter_logic`: Specify custom logic for a getter method.
+/// - `getter_logic`: Specify custom logic for a getter method. (MUST be a function path)
 /// - `skip_getter`: Do not generate a getter method for this field.
 #[proc_macro_derive(
     Getters,
@@ -126,7 +125,6 @@ pub fn derive_getters_fn(input: TokenStream) -> TokenStream {
         quote! {}
     };
 
-    
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
 
     // Combine getters, mutable getters, and the `new` function into the impl block..

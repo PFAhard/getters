@@ -1,7 +1,10 @@
 [package]
 name = "getters"
 version = "0.1.0"
+description = "Rust Getters Derive Macro: Effortlessly auto-generate customizable getter methods for Rust structs"
 edition = "2021"
+license = "GPL"
+repository = "https://github.com/PFAhard/getters"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
