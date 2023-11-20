@@ -5,6 +5,7 @@ description = "Rust Getters Derive Macro: Effortlessly auto-generate customizabl
 edition = "2021"
 license = "GPL-2.0"
 repository = "https://github.com/PFAhard/getters"
+documentation = "https://docs.rs/getters0"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
