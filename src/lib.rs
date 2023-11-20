@@ -4,7 +4,9 @@ extern crate syn;
 extern crate quote;
 
 use proc_macro::TokenStream;
-use syn::{parse_macro_input, spanned::Spanned, Data, DeriveInput, Fields, Ident};
+use syn::{
+    parse_macro_input, spanned::Spanned, Attribute, Data, DeriveInput, Fields, Ident, LitStr,
+};
 
 const USE_DEREF: &str = "use_deref";
 const USE_AS_REF: &str = "use_as_ref";
@@ -40,59 +42,11 @@ pub fn derive_getters_fn(input: TokenStream) -> TokenStream {
                 let field_ty = &f.ty;
 
                 // Check attributes to set flags for getter generation
-                let (use_deref, use_as_ref, generate_mut, skip_getter, custom_logic) =
-                    f.attrs.iter().fold(
-                        (false, false, false, false, None),
-                        |(use_deref, use_as_ref, generate_mut, skip_getter, custom_logic), attr| {
-                            match attr
-                                .path()
-                                .get_ident()
-                                .map(|ident| ident.to_string())
-                                .as_deref()
-                            {
-                                Some(USE_DEREF) => {
-                                    (true, use_as_ref, generate_mut, skip_getter, custom_logic)
-                                }
-                                Some(USE_AS_REF) => {
-                                    (use_deref, true, generate_mut, skip_getter, custom_logic)
-                                }
-                                Some(GET_MUT) => {
-                                    (use_deref, use_as_ref, true, skip_getter, custom_logic)
-                                }
-                                Some(SKIP_GETTER) => {
-                                    (use_deref, use_as_ref, generate_mut, true, custom_logic)
-                                }
-                                Some(GETTER_LOGIC) => {
-                                    (use_deref, use_as_ref, generate_mut, skip_getter, {
-                                        if let syn::Meta::NameValue(meta_name_value) = &attr.meta {
-                                            if let syn::Expr::Lit(lit_str) = &meta_name_value.value
-                                            {
-                                                match &lit_str.lit {
-                                                    syn::Lit::Str(lit) => Some(lit),
-                                                    _ => todo!(),
-                                                }
-                                            } else {
-                                                custom_logic
-                                            }
-                                        } else {
-                                            custom_logic
-                                        }
-                                    })
-                                }
-                                _ => (
-                                    use_deref,
-                                    use_as_ref,
-                                    generate_mut,
-                                    skip_getter,
-                                    custom_logic,
-                                ),
-                            }
-                        },
-                    );
+                let attrs = parse_field_attributes(&f.attrs);
 
-                if !skip_getter {
+                if !attrs.skip_getter {
                     // Generate the appropriate immutable getter based on the attributes
-                    let getter = if let Some(logic_str) = custom_logic {
+                    let getter = if let Some(logic_str) = attrs.custom_logic {
                         let logic: proc_macro2::TokenStream =
                             logic_str.parse().unwrap_or_else(|_| quote! {});
                         quote! {
@@ -100,13 +54,13 @@ pub fn derive_getters_fn(input: TokenStream) -> TokenStream {
                                 #logic(self.#field_name)
                             }
                         }
-                    } else if use_deref {
+                    } else if attrs.use_deref {
                         quote! {
                             pub fn #field_name(&self) -> &<#field_ty as std::ops::Deref>::Target {
                                 &*self.#field_name
                             }
                         }
-                    } else if use_as_ref {
+                    } else if attrs.use_as_ref {
                         quote! {
                             pub fn #field_name(&self) -> &<#field_ty as std::convert::AsRef<#field_ty>>::Target {
                                 self.#field_name.as_ref()
@@ -123,7 +77,7 @@ pub fn derive_getters_fn(input: TokenStream) -> TokenStream {
                     getters.push(getter);
 
                     // Generate mutable getter if the get_mut attribute is present
-                    if generate_mut {
+                    if attrs.generate_mut {
                         let getter_mut_name =
                             Ident::new(&format!("{}_mut", field_name), field_name.span());
                         let getter_mut = quote! {
@@ -216,4 +170,49 @@ fn generate_new_fn(data: &Data) -> proc_macro2::TokenStream {
         Data::Enum(_) => quote! {},
         Data::Union(_) => quote! {},
     }
+}
+
+#[derive(Default)]
+struct FieldAttributes {
+    use_deref: bool,
+    use_as_ref: bool,
+    generate_mut: bool,
+    skip_getter: bool,
+    custom_logic: Option<LitStr>,
+}
+
+fn parse_field_attributes(attrs: &[Attribute]) -> FieldAttributes {
+    attrs
+        .iter()
+        .fold(FieldAttributes::default(), |mut acc, attr| {
+            match attr
+                .path()
+                .get_ident()
+                .map(|ident| ident.to_string())
+                .as_deref()
+            {
+                Some(USE_DEREF) => acc.use_deref = true,
+                Some(USE_AS_REF) => acc.use_as_ref = true,
+                Some(GET_MUT) => acc.generate_mut = true,
+                Some(SKIP_GETTER) => acc.skip_getter = true,
+                Some(GETTER_LOGIC) => {
+                    acc.custom_logic = {
+                        if let syn::Meta::NameValue(meta_name_value) = &attr.meta {
+                            if let syn::Expr::Lit(lit_str) = &meta_name_value.value {
+                                match &lit_str.lit {
+                                    syn::Lit::Str(lit) => Some(lit.clone()),
+                                    _ => todo!(),
+                                }
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        }
+                    }
+                }
+                _ => (),
+            };
+            acc
+        })
 }
