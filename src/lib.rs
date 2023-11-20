@@ -15,6 +15,16 @@ const SKIP_NEW: &str = "skip_new";
 const GETTER_LOGIC: &str = "getter_logic";
 const SKIP_GETTER: &str = "skip_getter";
 
+
+/// A procedural macro to automatically derive getter methods for struct fields.
+///
+/// Attributes:
+/// - `use_deref`: Generate a getter method that dereferences the field.
+/// - `use_as_ref`: Generate a getter method using `AsRef` trait.
+/// - `get_mut`: Generate a mutable getter method for the field.
+/// - `skip_new`: Skip generating a `new` method for the struct.
+/// - `getter_logic`: Specify custom logic for a getter method.
+/// - `skip_getter`: Do not generate a getter method for this field.
 #[proc_macro_derive(
     Getters,
     attributes(use_deref, use_as_ref, get_mut, skip_new, getter_logic, skip_getter)
@@ -27,6 +37,7 @@ pub fn derive_getters_fn(input: TokenStream) -> TokenStream {
     let mut getters = Vec::new();
     let mut mut_getters = Vec::new();
 
+    // Check if `skip_new` attribute is present.
     let mut skip_new = false;
     for attr in &input.attrs {
         if attr.path().is_ident(SKIP_NEW) {
@@ -35,17 +46,19 @@ pub fn derive_getters_fn(input: TokenStream) -> TokenStream {
         }
     }
 
+    // Generate getters based on struct fields and attributes.
     if let Data::Struct(data_struct) = &input.data {
+        // Handle named fields.
         if let Fields::Named(fields_named) = &data_struct.fields {
             for f in fields_named.named.iter() {
                 let field_name = f.ident.as_ref().unwrap();
                 let field_ty = &f.ty;
 
-                // Check attributes to set flags for getter generation
+                // Parse and process attributes for each field.
                 let attrs = parse_field_attributes(&f.attrs);
 
+                // Generate getters based on parsed attributes.
                 if !attrs.skip_getter {
-                    // Generate the appropriate immutable getter based on the attributes
                     let getter = if let Some(logic_str) = attrs.custom_logic {
                         let logic: proc_macro2::TokenStream =
                             logic_str.parse().unwrap_or_else(|_| quote! {});
@@ -76,7 +89,7 @@ pub fn derive_getters_fn(input: TokenStream) -> TokenStream {
 
                     getters.push(getter);
 
-                    // Generate mutable getter if the get_mut attribute is present
+                    // Generate mutable getters if needed.
                     if attrs.generate_mut {
                         let getter_mut_name =
                             Ident::new(&format!("{}_mut", field_name), field_name.span());
@@ -90,6 +103,7 @@ pub fn derive_getters_fn(input: TokenStream) -> TokenStream {
                 }
             }
         }
+        // Handle unnamed fields (tuples).
         if let Fields::Unnamed(fields_unnamed) = &data_struct.fields {
             for (i, f) in fields_unnamed.unnamed.iter().enumerate() {
                 let field_ty = &f.ty;
@@ -105,16 +119,17 @@ pub fn derive_getters_fn(input: TokenStream) -> TokenStream {
         }
     }
 
-    // Generate the new function with fields and types.
+    // Generate a `new` function if not skipped.
     let new_fn = if !skip_new {
         generate_new_fn(&input.data)
     } else {
         quote! {}
     };
 
+    
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
 
-    // Combine the getters and mutable getters and the new function into the final impl block.
+    // Combine getters, mutable getters, and the `new` function into the impl block..
     let expanded = quote! {
         impl #impl_generics #name #ty_generics #where_clause {
             #new_fn
@@ -172,6 +187,7 @@ fn generate_new_fn(data: &Data) -> proc_macro2::TokenStream {
     }
 }
 
+/// Represents parsed field attributes for getter generation.
 #[derive(Default)]
 struct FieldAttributes {
     use_deref: bool,
@@ -181,6 +197,10 @@ struct FieldAttributes {
     custom_logic: Option<LitStr>,
 }
 
+/// Parses attributes applied to struct fields and returns a `FieldAttributes` instance.
+///
+/// This function reads through the provided attributes and sets flags in `FieldAttributes`
+/// based on the attributes found.
 fn parse_field_attributes(attrs: &[Attribute]) -> FieldAttributes {
     attrs
         .iter()
