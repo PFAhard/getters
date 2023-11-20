@@ -39,36 +39,56 @@ pub fn derive_getters_fn(input: TokenStream) -> TokenStream {
                 let field_name = f.ident.as_ref().unwrap();
                 let field_ty = &f.ty;
 
-                let mut use_deref = false;
-                let mut use_as_ref = false;
-                let mut generate_mut = false;
-                let mut skip_getter = false;
-
-                let mut custom_logic = None;
-
                 // Check attributes to set flags for getter generation
-                for attr in &f.attrs {
-                    if attr.path().is_ident(USE_DEREF) {
-                        use_deref = true;
-                    } else if attr.path().is_ident(USE_AS_REF) {
-                        use_as_ref = true;
-                    } else if attr.path().is_ident(SKIP_GETTER) {
-                        skip_getter = true;
-                    } else if attr.path().is_ident(GET_MUT) {
-                        generate_mut = true;
-                    } else if attr.path().is_ident(GETTER_LOGIC) {
-                        if let syn::Meta::NameValue(meta_name_value) = &attr.meta {
-                            if let syn::Expr::Lit(lit_str) = &meta_name_value.value {
-                                match &lit_str.lit {
-                                    syn::Lit::Str(lit) => {
-                                        custom_logic = Some(lit);
-                                    }
-                                    _ => todo!(),
+                let (use_deref, use_as_ref, generate_mut, skip_getter, custom_logic) =
+                    f.attrs.iter().fold(
+                        (false, false, false, false, None),
+                        |(use_deref, use_as_ref, generate_mut, skip_getter, custom_logic), attr| {
+                            match attr
+                                .path()
+                                .get_ident()
+                                .map(|ident| ident.to_string())
+                                .as_deref()
+                            {
+                                Some(USE_DEREF) => {
+                                    (true, use_as_ref, generate_mut, skip_getter, custom_logic)
                                 }
+                                Some(USE_AS_REF) => {
+                                    (use_deref, true, generate_mut, skip_getter, custom_logic)
+                                }
+                                Some(GET_MUT) => {
+                                    (use_deref, use_as_ref, true, skip_getter, custom_logic)
+                                }
+                                Some(SKIP_GETTER) => {
+                                    (use_deref, use_as_ref, generate_mut, true, custom_logic)
+                                }
+                                Some(GETTER_LOGIC) => {
+                                    (use_deref, use_as_ref, generate_mut, skip_getter, {
+                                        if let syn::Meta::NameValue(meta_name_value) = &attr.meta {
+                                            if let syn::Expr::Lit(lit_str) = &meta_name_value.value
+                                            {
+                                                match &lit_str.lit {
+                                                    syn::Lit::Str(lit) => Some(lit),
+                                                    _ => todo!(),
+                                                }
+                                            } else {
+                                                custom_logic
+                                            }
+                                        } else {
+                                            custom_logic
+                                        }
+                                    })
+                                }
+                                _ => (
+                                    use_deref,
+                                    use_as_ref,
+                                    generate_mut,
+                                    skip_getter,
+                                    custom_logic,
+                                ),
                             }
-                        }
-                    }
-                }
+                        },
+                    );
 
                 if !skip_getter {
                     // Generate the appropriate immutable getter based on the attributes
