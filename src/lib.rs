@@ -65,7 +65,8 @@ const COPY: &str = "copy";
         skip_new,
         getter_logic,
         skip_getter,
-        return_type
+        return_type,
+        copy
     )
 )]
 pub fn derive_getters_fn(input: TokenStream) -> TokenStream {
