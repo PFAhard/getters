@@ -36,7 +36,7 @@ const RETURN_TYPE: &str = "return_type";
 /// - `use_as_ref`: Generate a getter method using `AsRef` trait.
 /// - `get_mut`: Generate a mutable getter method for the field.
 /// - `skip_new`: Skip generating a `new` method for the struct.
-/// - `getter_logic`: Specify custom logic for a getter method. (MUST be a function path)
+/// - `getter_logic`: Specify custom logic for a getter method. (MUST be a function path) !!!Use with `return_type` only
 /// - `skip_getter`: Do not generate a getter method for this field.
 /// - `return_type`: Overrides the default return type of the getter.
 ///
@@ -56,7 +56,15 @@ const RETURN_TYPE: &str = "return_type";
 /// ```
 #[proc_macro_derive(
     Getters,
-    attributes(use_deref, use_as_ref, get_mut, skip_new, getter_logic, skip_getter, return_type)
+    attributes(
+        use_deref,
+        use_as_ref,
+        get_mut,
+        skip_new,
+        getter_logic,
+        skip_getter,
+        return_type
+    )
 )]
 pub fn derive_getters_fn(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
@@ -88,36 +96,65 @@ pub fn derive_getters_fn(input: TokenStream) -> TokenStream {
 
                 // Generate getters based on parsed attributes.
                 if !attrs.skip_getter {
-                    let getter = if let Some(custom_type) = &attrs.custom_return_type {
-                        quote! {
-                            pub fn #field_name(&self) -> #custom_type {
-                                &self.#field_name as & #custom_type
+                    let getter = if let Some(logic_str) = attrs.custom_logic {
+                        if let Some(custom_type) = &attrs.custom_return_type {
+                            let logic: proc_macro2::TokenStream =
+                                logic_str.parse().unwrap_or_else(|_| quote! {});
+                            quote! {
+                                pub fn #field_name(&self) -> #custom_type {
+                                    #logic(self.#field_name)
+                                }
                             }
-                        }
-                    } else if let Some(logic_str) = attrs.custom_logic {
-                        let logic: proc_macro2::TokenStream =
-                            logic_str.parse().unwrap_or_else(|_| quote! {});
-                        quote! {
-                            pub fn #field_name(&self) -> u32 {
-                                #logic(self.#field_name)
+                        } else {
+                            let logic: proc_macro2::TokenStream =
+                                logic_str.parse().unwrap_or_else(|_| quote! {});
+                            quote! {
+                                pub fn #field_name(&self) -> u32 {
+                                    #logic(self.#field_name)
+                                }
                             }
                         }
                     } else if attrs.use_deref {
-                        quote! {
-                            pub fn #field_name(&self) -> &<#field_ty as std::ops::Deref>::Target {
-                                &*self.#field_name
+                        if let Some(custom_type) = &attrs.custom_return_type {
+                            quote! {
+                                pub fn #field_name(&self) -> #custom_type {
+                                    &*self.#field_name
+                                }
+                            }
+                        } else {
+                            quote! {
+                                pub fn #field_name(&self) -> &<#field_ty as std::ops::Deref>::Target {
+                                    &*self.#field_name
+                                }
                             }
                         }
                     } else if attrs.use_as_ref {
-                        quote! {
-                            pub fn #field_name(&self) -> &<#field_ty as std::convert::AsRef<#field_ty>>::Target {
-                                self.#field_name.as_ref()
+                        if let Some(custom_type) = &attrs.custom_return_type {
+                            quote! {
+                                pub fn #field_name(&self) -> #custom_type {
+                                    self.#field_name.as_ref()
+                                }
+                            }
+                        } else {
+                            quote! {
+                                pub fn #field_name(&self) -> &<#field_ty as std::convert::AsRef<#field_ty>>::Target {
+                                    self.#field_name.as_ref()
+                                }
                             }
                         }
                     } else {
-                        quote! {
-                            pub fn #field_name(&self) -> &#field_ty {
-                                &self.#field_name
+                        #[allow(clippy::collapsible_else_if)]
+                        if let Some(custom_type) = &attrs.custom_return_type {
+                            quote! {
+                                pub fn #field_name(&self) -> #custom_type {
+                                    &self.#field_name
+                                }
+                            }
+                        } else {
+                            quote! {
+                                pub fn #field_name(&self) -> &#field_ty {
+                                    &self.#field_name
+                                }
                             }
                         }
                     };
