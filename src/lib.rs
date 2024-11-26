@@ -28,7 +28,7 @@ const SKIP_NEW: &str = "skip_new";
 const GETTER_LOGIC: &str = "getter_logic";
 const SKIP_GETTER: &str = "skip_getter";
 const RETURN_TYPE: &str = "return_type";
-const COPY: &str = "deref";
+const COPY: &str = "copy";
 
 /// A procedural macro to automatically derive getter methods for struct fields.
 ///
