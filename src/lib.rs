@@ -38,9 +38,25 @@ const RETURN_TYPE: &str = "return_type";
 /// - `skip_new`: Skip generating a `new` method for the struct.
 /// - `getter_logic`: Specify custom logic for a getter method. (MUST be a function path)
 /// - `skip_getter`: Do not generate a getter method for this field.
+/// - `return_type`: Overrides the default return type of the getter.
+///
+/// Example:
+/// ```rust
+/// #[derive(Getters)]
+/// struct MyStruct {
+///     #[return_type = "String"]
+///     field: Arc<String>,
+/// }
+/// ```
+/// This will generate:
+/// ```rust
+/// pub fn field(&self) -> String {
+///     self.field.clone()
+/// }
+/// ```
 #[proc_macro_derive(
     Getters,
-    attributes(use_deref, use_as_ref, get_mut, skip_new, getter_logic, skip_getter)
+    attributes(use_deref, use_as_ref, get_mut, skip_new, getter_logic, skip_getter, return_type)
 )]
 pub fn derive_getters_fn(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
@@ -72,7 +88,13 @@ pub fn derive_getters_fn(input: TokenStream) -> TokenStream {
 
                 // Generate getters based on parsed attributes.
                 if !attrs.skip_getter {
-                    let getter = if let Some(logic_str) = attrs.custom_logic {
+                    let getter = if let Some(custom_type) = &attrs.custom_return_type {
+                        quote! {
+                            pub fn #field_name(&self) -> #custom_type {
+                                &self.#field_name as & #custom_type
+                            }
+                        }
+                    } else if let Some(logic_str) = attrs.custom_logic {
                         let logic: proc_macro2::TokenStream =
                             logic_str.parse().unwrap_or_else(|_| quote! {});
                         quote! {
