@@ -27,6 +27,7 @@ const GET_MUT: &str = "get_mut";
 const SKIP_NEW: &str = "skip_new";
 const GETTER_LOGIC: &str = "getter_logic";
 const SKIP_GETTER: &str = "skip_getter";
+const RETURN_TYPE: &str = "return_type";
 
 /// A procedural macro to automatically derive getter methods for struct fields.
 ///
@@ -206,6 +207,7 @@ struct FieldAttributes {
     generate_mut: bool,
     skip_getter: bool,
     custom_logic: Option<LitStr>,
+    custom_return_type: Option<syn::Type>,
 }
 
 /// Parses attributes applied to struct fields and returns a `FieldAttributes` instance.
@@ -217,6 +219,16 @@ fn parse_field_attributes(attrs: &[Attribute]) -> FieldAttributes {
         .iter()
         .fold(FieldAttributes::default(), |mut acc, attr| {
             match attr.meta {
+                syn::Meta::NameValue(ref nv) if nv.path.is_ident(RETURN_TYPE) => {
+                    if let syn::Expr::Lit(ref value) = nv.value {
+                        match &value.lit {
+                            syn::Lit::Str(ref lit) => {
+                                acc.custom_return_type = lit.parse().ok();
+                            }
+                            _ => todo!(),
+                        }
+                    }
+                }
                 syn::Meta::Path(ref path) if path.is_ident(USE_DEREF) => acc.use_deref = true,
                 syn::Meta::Path(ref path) if path.is_ident(USE_AS_REF) => acc.use_as_ref = true,
                 syn::Meta::Path(ref path) if path.is_ident(GET_MUT) => acc.generate_mut = true,
