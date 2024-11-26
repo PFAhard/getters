@@ -28,6 +28,7 @@ const SKIP_NEW: &str = "skip_new";
 const GETTER_LOGIC: &str = "getter_logic";
 const SKIP_GETTER: &str = "skip_getter";
 const RETURN_TYPE: &str = "return_type";
+const COPY: &str = "deref";
 
 /// A procedural macro to automatically derive getter methods for struct fields.
 ///
@@ -39,6 +40,7 @@ const RETURN_TYPE: &str = "return_type";
 /// - `getter_logic`: Specify custom logic for a getter method. (MUST be a function path) !!!Use with `return_type` only
 /// - `skip_getter`: Do not generate a getter method for this field.
 /// - `return_type`: Overrides the default return type of the getter.
+/// - `copy`: Deref value in place, use for Copy types
 ///
 /// Example:
 /// ```rust
@@ -111,6 +113,20 @@ pub fn derive_getters_fn(input: TokenStream) -> TokenStream {
                             quote! {
                                 pub fn #field_name(&self) -> u32 {
                                     #logic(self.#field_name)
+                                }
+                            }
+                        }
+                    } else if attrs.copy {
+                        if let Some(custom_type) = &attrs.custom_return_type {
+                            quote! {
+                                pub fn #field_name(&self) -> #custom_type {
+                                    self.#field_name
+                                }
+                            }
+                        } else {
+                            quote! {
+                                pub fn #field_name(&self) -> #field_ty {
+                                    self.#field_name
                                 }
                             }
                         }
@@ -267,6 +283,7 @@ struct FieldAttributes {
     skip_getter: bool,
     custom_logic: Option<LitStr>,
     custom_return_type: Option<syn::Type>,
+    copy: bool,
 }
 
 /// Parses attributes applied to struct fields and returns a `FieldAttributes` instance.
@@ -289,6 +306,7 @@ fn parse_field_attributes(attrs: &[Attribute]) -> FieldAttributes {
                     }
                 }
                 syn::Meta::Path(ref path) if path.is_ident(USE_DEREF) => acc.use_deref = true,
+                syn::Meta::Path(ref path) if path.is_ident(COPY) => acc.copy = true,
                 syn::Meta::Path(ref path) if path.is_ident(USE_AS_REF) => acc.use_as_ref = true,
                 syn::Meta::Path(ref path) if path.is_ident(GET_MUT) => acc.generate_mut = true,
                 syn::Meta::Path(ref path) if path.is_ident(SKIP_GETTER) => acc.skip_getter = true,
