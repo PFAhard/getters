@@ -30,6 +30,7 @@ const GETTER_LOGIC: &str = "getter_logic";
 const SKIP_GETTER: &str = "skip_getter";
 const RETURN_TYPE: &str = "return_type";
 const COPY: &str = "copy";
+const CLONE: &str = "clone";
 
 /// A procedural macro to automatically derive getter methods for struct fields.
 ///
@@ -42,7 +43,8 @@ const COPY: &str = "copy";
 /// - `getter_logic`: Specify custom logic for a getter method. (MUST be a function path) !!!Use with `return_type` only
 /// - `skip_getter`: Do not generate a getter method for this field.
 /// - `return_type`: Overrides the default return type of the getter.
-/// - `copy`: Deref value in place, use for Copy types
+/// - `copy`: copy value in place, use for Copy types
+/// - `copy`: clone value, use for Clone types
 ///
 /// Example:
 /// ```rust
@@ -69,7 +71,8 @@ const COPY: &str = "copy";
         getter_logic,
         skip_getter,
         return_type,
-        copy
+        copy,
+        clone
     )
 )]
 pub fn derive_getters_fn(input: TokenStream) -> TokenStream {
@@ -131,6 +134,20 @@ pub fn derive_getters_fn(input: TokenStream) -> TokenStream {
                             quote! {
                                 pub fn #field_name(&self) -> #field_ty {
                                     self.#field_name
+                                }
+                            }
+                        }
+                    } else if attrs.clone {
+                        if let Some(custom_type) = &attrs.custom_return_type {
+                            quote! {
+                                pub fn #field_name(&self) -> #custom_type {
+                                    self.#field_name.clone()
+                                }
+                            }
+                        } else {
+                            quote! {
+                                pub fn #field_name(&self) -> #field_ty {
+                                    self.#field_name.clone()
                                 }
                             }
                         }
@@ -303,6 +320,7 @@ struct FieldAttributes {
     custom_logic: Option<LitStr>,
     custom_return_type: Option<syn::Type>,
     copy: bool,
+    clone: bool,
 }
 
 /// Parses attributes applied to struct fields and returns a `FieldAttributes` instance.
@@ -327,6 +345,7 @@ fn parse_field_attributes(attrs: &[Attribute]) -> FieldAttributes {
                 syn::Meta::Path(ref path) if path.is_ident(USE_DEREF) => acc.use_deref = true,
                 syn::Meta::Path(ref path) if path.is_ident(USE_AS_DEREF) => acc.use_as_deref = true,
                 syn::Meta::Path(ref path) if path.is_ident(COPY) => acc.copy = true,
+                syn::Meta::Path(ref path) if path.is_ident(CLONE) => acc.clone = true,
                 syn::Meta::Path(ref path) if path.is_ident(USE_AS_REF) => acc.use_as_ref = true,
                 syn::Meta::Path(ref path) if path.is_ident(GET_MUT) => acc.generate_mut = true,
                 syn::Meta::Path(ref path) if path.is_ident(SKIP_GETTER) => acc.skip_getter = true,
