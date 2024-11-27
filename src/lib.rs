@@ -22,6 +22,7 @@ use syn::{
 };
 
 const USE_DEREF: &str = "use_deref";
+const USE_AS_DEREF: &str = "use_as_deref";
 const USE_AS_REF: &str = "use_as_ref";
 const GET_MUT: &str = "get_mut";
 const SKIP_NEW: &str = "skip_new";
@@ -34,6 +35,7 @@ const COPY: &str = "copy";
 ///
 /// Attributes:
 /// - `use_deref`: Generate a getter method that dereferences the field.
+/// - `use_as_deref`: Generate a getter method using `AsRef` trait.
 /// - `use_as_ref`: Generate a getter method using `AsRef` trait.
 /// - `get_mut`: Generate a mutable getter method for the field.
 /// - `skip_new`: Skip generating a `new` method for the struct.
@@ -60,6 +62,7 @@ const COPY: &str = "copy";
     Getters,
     attributes(
         use_deref,
+        use_as_deref,
         use_as_ref,
         get_mut,
         skip_new,
@@ -142,6 +145,20 @@ pub fn derive_getters_fn(input: TokenStream) -> TokenStream {
                             quote! {
                                 pub fn #field_name(&self) -> &<#field_ty as std::ops::Deref>::Target {
                                     &*self.#field_name
+                                }
+                            }
+                        }
+                    } else if attrs.use_as_deref {
+                        if let Some(custom_type) = &attrs.custom_return_type {
+                            quote! {
+                                pub fn #field_name(&self) -> #custom_type {
+                                    self.#field_name.as_deref()
+                                }
+                            }
+                        } else {
+                            quote! {
+                                pub fn #field_name(&self) -> &<#field_ty as std::convert::AsDeref<#field_ty>>::Target {
+                                    self.#field_name.as_deref()
                                 }
                             }
                         }
@@ -279,6 +296,7 @@ fn generate_new_fn(data: &Data) -> proc_macro2::TokenStream {
 #[derive(Default)]
 struct FieldAttributes {
     use_deref: bool,
+    use_as_deref: bool,
     use_as_ref: bool,
     generate_mut: bool,
     skip_getter: bool,
@@ -307,6 +325,7 @@ fn parse_field_attributes(attrs: &[Attribute]) -> FieldAttributes {
                     }
                 }
                 syn::Meta::Path(ref path) if path.is_ident(USE_DEREF) => acc.use_deref = true,
+                syn::Meta::Path(ref path) if path.is_ident(USE_AS_DEREF) => acc.use_as_deref = true,
                 syn::Meta::Path(ref path) if path.is_ident(COPY) => acc.copy = true,
                 syn::Meta::Path(ref path) if path.is_ident(USE_AS_REF) => acc.use_as_ref = true,
                 syn::Meta::Path(ref path) if path.is_ident(GET_MUT) => acc.generate_mut = true,
